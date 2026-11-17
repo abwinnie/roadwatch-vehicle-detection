@@ -152,6 +152,7 @@
     const button = byId("load-model");
     const progressWrap = byId("model-progress-wrap");
     button.disabled = true;
+    button.textContent = "載入中…";
     progressWrap.hidden = false;
     byId("model-progress").style.width = "0%";
     setModelState("準備載入瀏覽器推論引擎…");
@@ -182,11 +183,18 @@
       byId("screenshot").disabled = false;
       byId("model-progress").style.width = "100%";
       setModelState("模型就緒 · WASM CPU", "ready");
+      button.textContent = "模型已就緒";
       startScheduler();
     } catch (error) {
       session = null;
-      setModelState(error instanceof Error ? error.message : String(error), "error");
+      const message = error instanceof Error ? error.message : String(error);
+      const networkFailure = error instanceof TypeError && /failed to fetch/i.test(message);
+      setModelState(
+        networkFailure ? "網路載入失敗，請檢查連線後重試。" : message,
+        "error",
+      );
       button.disabled = false;
+      button.textContent = "重試載入模型";
     } finally {
       window.setTimeout(() => { progressWrap.hidden = true; }, 650);
     }
@@ -626,3 +634,4 @@
     if (event.key === "Enter" && session) downloadScreenshot();
   });
 })();
+
