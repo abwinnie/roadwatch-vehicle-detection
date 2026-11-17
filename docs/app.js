@@ -2,7 +2,6 @@
   "use strict";
 
   const MODEL_URL = new URL("./models/yolox_s.onnx", document.baseURI).href;
-  const ORT_VERSION = "1.30.0";
   const INPUT_SIZE = 640;
   const CLASS_COUNT = 80;
   const TARGET_CARS = new Set([2, 5, 7]);
@@ -151,6 +150,7 @@
     if (session) return;
     const button = byId("load-model");
     const progressWrap = byId("model-progress-wrap");
+    let loadStage = "推論引擎";
     button.disabled = true;
     button.textContent = "載入中…";
     progressWrap.hidden = false;
@@ -158,17 +158,19 @@
     setModelState("準備載入瀏覽器推論引擎…");
 
     try {
-      if (!window.ort) throw new Error("ONNX Runtime Web 載入失敗，請確認可以連線 jsDelivr CDN。");
-      window.ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+      if (!window.ort) throw new Error("推論引擎未載入，請重新整理網站後再試。");
+      window.ort.env.wasm.wasmPaths = new URL("./vendor/", document.baseURI).href;
       window.ort.env.wasm.numThreads = 1;
       window.ort.env.wasm.proxy = false;
 
+      loadStage = "模型下載";
       setModelState("下載 YOLOX-S 模型…");
       const response = await fetch(MODEL_URL, { cache: "force-cache" });
       if (!response.ok) throw new Error(`模型下載失敗（HTTP ${response.status}）。`);
       const modelBytes = await readModelWithProgress(response);
       if (modelBytes.byteLength < 1_000_000) throw new Error("模型檔案大小不正確。");
 
+      loadStage = "WASM 初始化";
       setModelState("初始化 WASM 推論…");
       session = await window.ort.InferenceSession.create(modelBytes, {
         executionProviders: ["wasm"],
@@ -190,7 +192,7 @@
       const message = error instanceof Error ? error.message : String(error);
       const networkFailure = error instanceof TypeError && /failed to fetch/i.test(message);
       setModelState(
-        networkFailure ? "網路載入失敗，請檢查連線後重試。" : message,
+        networkFailure ? `網路載入失敗（${loadStage}），請檢查連線後重試。` : message,
         "error",
       );
       button.disabled = false;
@@ -634,4 +636,3 @@
     if (event.key === "Enter" && session) downloadScreenshot();
   });
 })();
-

@@ -57,4 +57,4 @@ python -m http.server 8000 --directory dist
 
 GitHub Pages 只能提供靜態檔案，不能代替監視器伺服器加入 CORS 標頭或轉送串流。瀏覽器需要以 `fetch` 取得 MJPEG 影格才能辨識；來源沒有允許 Pages 網域的 `Access-Control-Allow-Origin` 時，可能只能透過 `<img>` 預覽，不能讀取影格辨識。以目前端點探測，臺南來源回應 multipart MJPEG 但未看到 CORS 允許標頭；公路局來源使用 HTTP，而 Pages 是 HTTPS，瀏覽器可能依 Mixed Content 規則封鎖。兩路預設來源因此不能保證在 Pages 直接完成推論；本機影片上傳可用於免後端操作與展示。
 
-網站模型由 `scripts/build_pages.py` 優先複製本機 `weights/yolox_s.onnx`，若建置環境沒有該檔則從官方 YOLOX release 下載。ONNX Runtime Web/WASM 由固定版本的 jsDelivr CDN 載入；首次造訪需下載約 36 MB 模型及瀏覽器執行元件。若要讓目前兩支監視器網址在公開網站上都可直接辨識，需提供具授權、HTTPS 與 CORS 設定的串流服務，或另建受控的後端轉送服務。
+網站模型由 `scripts/build_pages.py` 優先複製本機 `weights/yolox_s.onnx`，若建置環境沒有該檔則從官方 YOLOX release 下載。建置流程會將固定版本的 ONNX Runtime Web/WASM 隨網站一併發佈，避免訪客瀏覽器另連 jsDelivr；首次造訪需下載約 36 MB 模型及瀏覽器執行元件。若要讓目前兩支監視器網址在公開網站上都可直接辨識，需提供具授權、HTTPS 與 CORS 設定的串流服務，或另建受控的後端轉送服務。
