@@ -1,0 +1,16 @@
+.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.pt
+*.onnx
+*.engine
+outputs/
+results/
+dist/
+01_監視器/

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10191b">
+    <meta name="description" content="在瀏覽器本機執行 YOLOX 車輛辨識，並排檢視兩路監視器或影片。">
+    <title>Roadwatch｜雙路車輛辨識</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.min.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="topbar" aria-label="主導覽">
+        <a class="brand" href="./" aria-label="Roadwatch 首頁">
+          <span class="brand-mark">R</span>
+          <span>ROADWATCH <small>VISION LAB</small></span>
+        </a>
+        <span class="public-badge"><span class="live-dot"></span>公開靜態網頁・免登入</span>
+      </nav>
+
+      <main>
+        <section class="intro">
+          <p class="eyebrow">BROWSER-BASED VEHICLE DETECTION</p>
+          <h1>雙路道路影像辨識</h1>
+          <p class="intro-copy">YOLOX-S 在訪客的瀏覽器本機執行。可載入兩段影片，或測試允許跨來源讀取的 MJPEG 串流。</p>
+        </section>
+
+        <aside class="cors-note" role="note">
+          <span class="note-icon" aria-hidden="true">i</span>
+          <div>
+            <strong>監視器網址有瀏覽器來源限制</strong>
+            <p>GitHub Pages 是純靜態主機，不能替攝影機加上 CORS 標頭。沒有 CORS 的串流可能只能預覽，無法讀取畫素做辨識；HTTPS 網頁也可能擋下 HTTP 串流。此時請使用本機影片，或改用允許此網頁來源的串流端點。</p>
+          </div>
+        </aside>
+
+        <section class="toolbar" aria-label="模型與畫面操作">
+          <div class="model-info">
+            <span class="model-indicator" id="model-indicator"></span>
+            <div>
+              <strong id="model-state">模型尚未載入</strong>
+              <span>YOLOX-S ONNX · 約 36 MB · 瀏覽器 WASM</span>
+            </div>
+          </div>
+          <div class="toolbar-actions">
+            <label class="threshold-control" for="confidence">
+              <span>信心閾值</span>
+              <input id="confidence" type="number" min="0" max="1" step="0.05" value="0.30" inputmode="decimal">
+            </label>
+            <button class="button button-primary" id="load-model" type="button">載入模型</button>
+            <button class="button button-quiet" id="screenshot" type="button" disabled>下載合成截圖</button>
+            <button class="button button-quiet" id="stop-all" type="button">停止來源</button>
+          </div>
+          <div class="progress-track" id="model-progress-wrap" hidden>
+            <div class="progress-bar" id="model-progress"></div>
+          </div>
+        </section>
+
+        <section class="camera-grid" aria-label="雙路影像">
+          <article class="camera-card" data-camera="left">
+            <header class="camera-heading">
+              <div>
+                <p class="camera-kicker">CAMERA 01 · LEFT</p>
+                <h2>公路局台 1 線 92K+450</h2>
+              </div>
+              <span class="status-chip" id="left-status">待連線</span>
+            </header>
+            <div class="view-frame">
+              <canvas id="left-canvas" width="640" height="480" aria-label="左側車輛辨識畫面"></canvas>
+              <img id="left-preview" class="fallback-preview" alt="左側監視器串流預覽" hidden>
+              <video id="left-video" class="source-video" muted playsinline loop></video>
+              <div class="empty-overlay" id="left-empty">
+                <span class="empty-icon" aria-hidden="true">01</span>
+                <span>連線監視器或載入影片</span>
+              </div>
+            </div>
+            <div class="source-controls">
+              <label class="field-label" for="left-url">MJPEG 串流網址</label>
+              <div class="url-row">
+                <input id="left-url" type="url" value="http://cctv-ss04.thb.gov.tw/T1-92K+450" autocomplete="url" spellcheck="false">
+                <button class="button button-small connect-stream" data-camera="left" type="button">連線</button>
+              </div>
+              <label class="upload-control" for="left-file"><span class="upload-icon" aria-hidden="true">＋</span><span><strong>選擇影片檔</strong><small>MP4、WebM 等瀏覽器可播放格式</small></span><input id="left-file" type="file" accept="video/*"></label>
+              <div class="playback-row"><button class="text-button playback-toggle" data-camera="left" type="button" disabled>播放／暫停</button><span id="left-source-label">尚未選擇來源</span></div>
+            </div>
+          </article>
+
+          <article class="camera-card" data-camera="right">
+            <header class="camera-heading">
+              <div>
+                <p class="camera-kicker">CAMERA 02 · RIGHT</p>
+                <h2>臺南 AED99D50</h2>
+              </div>
+              <span class="status-chip" id="right-status">待連線</span>
+            </header>
+            <div class="view-frame">
+              <canvas id="right-canvas" width="640" height="480" aria-label="右側車輛辨識畫面"></canvas>
+              <img id="right-preview" class="fallback-preview" alt="右側監視器串流預覽" hidden>
+              <video id="right-video" class="source-video" muted playsinline loop></video>
+              <div class="empty-overlay" id="right-empty">
+                <span class="empty-icon" aria-hidden="true">02</span>
+                <span>連線監視器或載入影片</span>
+              </div>
+            </div>
+            <div class="source-controls">
+              <label class="field-label" for="right-url">MJPEG 串流網址</label>
+              <div class="url-row">
+                <input id="right-url" type="url" value="https://trafficvideo3.tainan.gov.tw/aed99d50" autocomplete="url" spellcheck="false">
+                <button class="button button-small connect-stream" data-camera="right" type="button">連線</button>
+              </div>
+              <label class="upload-control" for="right-file"><span class="upload-icon" aria-hidden="true">＋</span><span><strong>選擇影片檔</strong><small>MP4、WebM 等瀏覽器可播放格式</small></span><input id="right-file" type="file" accept="video/*"></label>
+              <div class="playback-row"><button class="text-button playback-toggle" data-camera="right" type="button" disabled>播放／暫停</button><span id="right-source-label">尚未選擇來源</span></div>
+            </div>
+          </article>
+        </section>
+
+        <footer class="page-footer">
+          <span>推論在本機瀏覽器執行，影片不會上傳到此網站。</span>
+          <span>Enter 截圖 · Esc 停止 · 顯示當前影格偵測數</span>
+        </footer>
+      </main>
+    </div>
+    <noscript>此頁面需要啟用 JavaScript 才能執行辨識。</noscript>
+  </body>
+</html>
