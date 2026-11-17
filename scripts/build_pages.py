@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import urllib.request
@@ -24,6 +25,7 @@ ORT_ASSETS = {
     "ort-wasm-simd-threaded.wasm": 1_000_000,
 }
 MIN_MODEL_SIZE = 1_000_000
+MODEL_CHUNK_BYTES = 2 * 1024 * 1024
 
 
 def safe_reset_output() -> None:
@@ -62,6 +64,32 @@ def obtain_model(destination: Path) -> None:
     download_asset(MODEL_URL, destination, MIN_MODEL_SIZE, "official YOLOX-S ONNX model")
 
 
+def split_model(model_path: Path, model_dir: Path) -> dict[str, int]:
+    model_size = model_path.stat().st_size
+    chunk_count = (model_size + MODEL_CHUNK_BYTES - 1) // MODEL_CHUNK_BYTES
+    with model_path.open("rb") as model_file:
+        for index in range(chunk_count):
+            chunk = model_file.read(MODEL_CHUNK_BYTES)
+            if not chunk:
+                raise RuntimeError("The model ended before all chunks were written.")
+            chunk_path = model_dir / f"yolox_s_{index:03}.bin"
+            chunk_path.write_bytes(chunk)
+        if model_file.read(1):
+            raise RuntimeError("The model changed while it was being split.")
+    model_path.unlink()
+
+    manifest = {
+        "size_bytes": model_size,
+        "chunk_bytes": MODEL_CHUNK_BYTES,
+        "chunk_count": chunk_count,
+    }
+    (model_dir / "manifest.json").write_text(
+        json.dumps(manifest, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def main() -> int:
     if not (SOURCE_SITE / "index.html").is_file():
         print(f"Static site entry point is missing: {SOURCE_SITE / 'index.html'}", file=sys.stderr)
@@ -71,14 +99,17 @@ def main() -> int:
     shutil.copytree(SOURCE_SITE, OUTPUT, dirs_exist_ok=True)
     model_dir = OUTPUT / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
-    obtain_model(model_dir / "yolox_s.onnx")
+    model_path = model_dir / "yolox_s.onnx"
+    obtain_model(model_path)
+    model_manifest = split_model(model_path, model_dir)
     vendor_dir = OUTPUT / "vendor"
     for filename, minimum_size in ORT_ASSETS.items():
         destination = vendor_dir / filename
         download_asset(f"{ORT_BASE_URL}/{filename}", destination, minimum_size, filename)
     (OUTPUT / ".nojekyll").touch()
     print(f"GitHub Pages artifact prepared: {OUTPUT}")
-    print(f"Model size: {(model_dir / 'yolox_s.onnx').stat().st_size:,} bytes")
+    print(f"Model size: {model_manifest['size_bytes']:,} bytes")
+    print(f"Model chunk count: {model_manifest['chunk_count']}")
     for filename in ORT_ASSETS:
         print(f"Runtime asset size ({filename}): {(vendor_dir / filename).stat().st_size:,} bytes")
     return 0
