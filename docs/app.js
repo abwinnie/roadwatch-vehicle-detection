@@ -2,6 +2,8 @@
   "use strict";
 
   const MODEL_URL = new URL("./models/yolox_s.onnx", document.baseURI).href;
+  const MODEL_CHUNK_BYTES = 2 * 1024 * 1024;
+  const MODEL_DOWNLOAD_RETRIES = 3;
   const INPUT_SIZE = 640;
   const CLASS_COUNT = 80;
   const TARGET_CARS = new Set([2, 5, 7]);
@@ -146,6 +148,74 @@
     return bytes;
   }
 
+  async function fetchModelRange(start, end, expectedTotal = null) {
+    const segment = Math.floor(start / MODEL_CHUNK_BYTES) + 1;
+    let lastError;
+    for (let attempt = 0; attempt <= MODEL_DOWNLOAD_RETRIES; attempt += 1) {
+      try {
+        const response = await fetch(MODEL_URL, {
+          headers: { Range: `bytes=${start}-${end}` },
+          cache: "force-cache",
+        });
+        if (response.status === 200 && start === 0) {
+          return { bytes: await readModelWithProgress(response), total: null, full: true };
+        }
+        if (response.status !== 206) {
+          throw new Error(`模型分段下載失敗（HTTP ${response.status}）。`);
+        }
+
+        const contentRange = response.headers.get("content-range") || "";
+        const match = /^bytes (\d+)-(\d+)\/(\d+)$/i.exec(contentRange);
+        if (!match || Number(match[1]) !== start || Number(match[2]) !== end) {
+          throw new Error("模型分段回應範圍不正確。");
+        }
+        const total = Number(match[3]);
+        if (expectedTotal !== null && total !== expectedTotal) {
+          throw new Error("模型檔案大小在下載期間改變。");
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength !== end - start + 1) {
+          throw new TypeError("模型分段下載不完整。");
+        }
+        return { bytes, total, full: false };
+      } catch (error) {
+        lastError = error;
+        const retryable = error instanceof TypeError || /HTTP 5\d\d/.test(String(error));
+        if (!retryable || attempt === MODEL_DOWNLOAD_RETRIES) break;
+        setModelState(`下載中斷，正在重試模型第 ${segment} 段（${attempt + 1}/${MODEL_DOWNLOAD_RETRIES}）…`);
+        await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    throw lastError;
+  }
+
+  async function downloadModelWithProgress() {
+    const firstEnd = MODEL_CHUNK_BYTES - 1;
+    const first = await fetchModelRange(0, firstEnd);
+    if (first.full) return first.bytes;
+    if (!Number.isSafeInteger(first.total) || first.total < 1_000_000) {
+      throw new Error("模型檔案大小不正確。");
+    }
+
+    const modelBytes = new Uint8Array(first.total);
+    let loaded = first.bytes.byteLength;
+    modelBytes.set(first.bytes, 0);
+    const chunkCount = Math.ceil(first.total / MODEL_CHUNK_BYTES);
+    byId("model-progress").style.width = `${Math.round((loaded / first.total) * 100)}%`;
+    setModelState(`下載模型中 ${Math.round((loaded / first.total) * 100)}%`);
+
+    for (let start = MODEL_CHUNK_BYTES; start < first.total; start += MODEL_CHUNK_BYTES) {
+      const end = Math.min(start + MODEL_CHUNK_BYTES, first.total) - 1;
+      const segment = await fetchModelRange(start, end, first.total);
+      modelBytes.set(segment.bytes, start);
+      loaded += segment.bytes.byteLength;
+      const percent = Math.min(100, Math.round((loaded / first.total) * 100));
+      byId("model-progress").style.width = `${percent}%`;
+      setModelState(`下載模型中 ${percent}%（${Math.ceil(loaded / MODEL_CHUNK_BYTES)}/${chunkCount} 段）`);
+    }
+    return modelBytes;
+  }
+
   async function loadModel() {
     if (session) return;
     const button = byId("load-model");
@@ -165,9 +235,7 @@
 
       loadStage = "模型下載";
       setModelState("下載 YOLOX-S 模型…");
-      const response = await fetch(MODEL_URL, { cache: "force-cache" });
-      if (!response.ok) throw new Error(`模型下載失敗（HTTP ${response.status}）。`);
-      const modelBytes = await readModelWithProgress(response);
+      const modelBytes = await downloadModelWithProgress();
       if (modelBytes.byteLength < 1_000_000) throw new Error("模型檔案大小不正確。");
 
       loadStage = "WASM 初始化";
